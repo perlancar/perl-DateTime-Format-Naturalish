@@ -1,112 +1,291 @@
-package DateTime::Format::Natural::Lang::EN;
+package DateTime::Format::Humania;
+# ABSTRACT: Parse human date/time
 
+=head1 SYNOPSIS
+
+ use DateTime;
+ use DateTime::Format::Humania;
+
+ my $parser = DateTime::Format::Humania->new();
+ my $dt = $parser->parse_datetime("2 hours 13 minutes from now");
+
+=head1 DESCRIPTION
+
+There are already some other DateTime human language parsers on CPAN, e.g.
+L<DateTime::Format::Natural>. This module is yet another implementation of such,
+designed to make it easy to add new human languages.
+
+=head1 HOW IT WORKS
+
+Parsing a date string is done by matching it against a bunch of patterns. Parsing
+succeeds if there is at least one pattern matches. Parsing fails if no pattern
+matches.
+
+A pattern is a regex. You provide them in p_*() methods. Example:
+
+ # in DateTime::Format::Humania::EN
+ sub p_NOW       { qr/(?:now)/ }
+
+ # in DateTime::Format::Humania::ID
+ sub p_YESTERDAY { qr/(?:kemarin)/ }
+
+When a pattern matches the text, an associated a_*() action method will be run.
+For example:
+
+ sub a_YESTERDAY { my ($self, $dt) = @_; $dt->add(days => -1) }
+
+The action method will be given a DateTime object which was initially created
+using DateTime->now().
+
+A pattern can be composed of tokens and other patterns:
+
+ # in EN
+ sub p_LAST_WEEKDAY { "<LAST> <WEEKDAY>" }
+ sub t_LAST { "last" }
+
+ # in ID (in Indonesian, order is reversed, we usually say 'saturday next')
+ sub p_NEXT_WEEKDAY { "<WEEKDAY> <NEXT>" }
+ sub t_NEXT { ["berikutnya", "depan"] }
+
+They will also be converted into a regex, e.g. in EN (note the named captures):
+
+ qr/(?<NEXT>(?:last)) (?<WEEKDAY>(?:monday|mon|tuesday|tue|...))/
+
+=head1 ADDING A NEW HUMAN LANGUAGE
+
+To add a new language, subclass this module, which already contains many patterns
+(though some might contain Englishisms). You usually then alter a few p_*()
+methods, as well as provide some translations for some text (like weekday and
+month names in t_*() methods). The point is that most of the action methods
+should be reusable.
+
+Of course you can add new patterns along with their actions, though try to think
+more generically and see if your new pattern is also applicable to English/the
+base class.
+
+If you want to remove some patterns because it is not used in your language,
+override the associated p_*() method and return undef.
+
+For more details, view the source code to existing translations, like
+L<DateTime::Format::Humania::ID>.
+
+=cut
+
+use 5.010;
 use strict;
 use warnings;
-use base qw(DateTime::Format::Natural::Lang::Base);
-#use boolean qw(true false);
-use constant true  => 1;
-use constant false => 0;
-use constant skip  => true;
 
-use DateTime::Format::Natural::Helpers qw(%flag);
+use Any::Moose;
+use DateTime;
 
-our $VERSION = '1.38';
+has all_patterns_re => (is => 'rw');
 
-our (%init,
-     %timespan,
-     %units,
-     %suffixes,
-     %RE,
-     %data_weekdays,
-     %data_weekdays_abbrev,
-     @data_weekdays_all,
-     %data_months,
-     %data_months_abbrev,
-     @data_months_all,
-     %data_conversion,
-     %data_helpers,
-     %data_duration,
-     %data_aliases,
-     %extended_checks,
-     %grammar);
+sub BUILD {
+    my ($self, %args) = @_;
+    $self->prepare_patterns unless $self->{all_patterns_re};
+}
 
-%init     = (tokens  => sub {});
-%timespan = (literal => 'to');
-%units    = (ordered => [ qw(second minute hour day week month year) ]);
-%suffixes = (ordinal => join '|', qw(st nd rd th d));
+sub prepare_patterns {
+    my ($self) = @_;
 
-%RE = (number    => qr/^(\d+)$/,
-       year      => qr/^(\d{4})$/,
-       time      => qr/^((?:\d{1,2})(?:\:\d{2})?)$/,
-       time_am   => qr/^((?:\d{1,2})(?:\:\d{2})?)am$/i,
-       time_pm   => qr/^((?:\d{1,2})(?:\:\d{2})?)pm$/i,
-       time_full => qr/^(\d{1,2}\:\d{2}\:\d{2})$/,
-       day       => qr/^(\d+)($suffixes{ordinal})?$/i,
-       monthday  => qr/^(\d{1,2})($suffixes{ordinal})?$/i);
-{
-    my $i = 1;
+    $self->{patterns} = [];
+}
 
-    %data_weekdays = map {
-        $_ => $i++
-    } qw(Monday Tuesday Wednesday Thursday Friday Saturday Sunday);
-    %data_weekdays_abbrev = map {
-        substr($_, 0, 3) => $_
-    } keys %data_weekdays;
+# if today=wed, this_weekday(tue)= H-8 (if a=-1) / H-1 (if a=0) / H+6 (if a=1),
+# this_weekend(wed)=H-7 (if b=-1) / H (if b=0) / H+7 (if b=1),
+# this_weekday(thu)=H-6 (if c=-1) / H+1 (if c=0) / H+8 (if c=7)
 
-    @data_weekdays_all = (keys %data_weekdays, keys %data_weekdays_abbrev);
+sub last_weekday_param_a { -1 }
+sub last_weekday_param_b { -1 }
+sub last_weekday_param_c { -1 }
 
-    my $days_re = join '|', @data_weekdays_all;
-    $RE{weekday} = qr/^($days_re)$/i;
+sub this_weekday_param_a {  0 }
+sub this_weekday_param_b {  0 }
+sub this_weekday_param_c {  0 }
 
-    $days_re = join '|', map "${_}s?", @data_weekdays_all;
-    $RE{weekdays} = qr/^($days_re)$/i;
+sub next_weekday_param_a {  1 }
+sub next_weekday_param_b {  1 }
+sub next_weekday_param_c {  1 }
 
-    $i = 1;
+sub calc_weekday {
+    my ($self, $dt, $target_dow, $a, $b, $c) = @_;
+    my $cur_dow = $dt->day_of_week;
+    my $n = $target_dow - $cur_dow;
+    if ($target_dow < $cur_dow) {
+        $n += ($a==-1 ? -7 : $a== 0 ?  0 : 7);
+    } elsif ($target_dow == $cur_dow) {
+        $n += ($b==-1 ? -7 : $b== 0 ?  0 : 7);
+    } else {
+        $n += ($c==-1 ? -7 : $c== 0 ?  0 : 7);
+    }
+    $dt->add(days => $n);
+}
 
-    %data_months = map {
-        $_ => $i++
-    } qw(January February March April May June July August September
-         October November December);
-    %data_months_abbrev = map {
-        substr($_, 0, 3) => $_
-    } keys %data_months;
+sub calc_last_weekday {
+    my ($self, $dt, $target_dow, $a, $b, $c) = @_;
+    $a //= $self->last_weekday_param_a;
+    $a //= $self->last_weekday_param_b;
+    $a //= $self->last_weekday_param_c;
+    $self->calc_weekday($dt, $target_dow, $a, $b, $c);
+}
 
-    @data_months_all = (keys %data_months, keys %data_months_abbrev);
+sub calc_this_weekday {
+    my ($self, $dt, $target_dow, $a, $b, $c) = @_;
+    $a //= $self->this_weekday_param_a;
+    $a //= $self->this_weekday_param_b;
+    $a //= $self->this_weekday_param_c;
+    $self->calc_weekday($dt, $target_dow, $a, $b, $c);
+}
 
-    my $months_re = join '|', @data_months_all;
-    $RE{month} = qr/^($months_re)$/i;
+sub calc_next_weekday {
+    my ($self, $dt, $target_dow, $a, $b, $c) = @_;
+    $a //= $self->next_weekday_param_a;
+    $a //= $self->next_weekday_param_b;
+    $a //= $self->next_weekday_param_c;
+    $self->calc_weekday($dt, $target_dow, $a, $b, $c);
+}
 
+# combine all pattern res into a single one, for matching strings
+
+sub compile_single_big_re {
+    my ($self) = @_;
+    my $re = join(
+        "|",
+        sort {length($b) <=> length($a)}
+            map { $_->[0] } @{ $self->{patterns} }
+        );
+    $self->{single_big_re} = qr/\A$re\z/;
+}
+
+sub preprocess {
+    my ($self, $str) = @_;
+    for ($str) { s/\A\s+//s; s/\s+\z//s; }
+    lc($str);
+}
+
+sub parse_datetime {
+    my ($self, $str) = @_;
+    my $re = $self->{single_big_re};
+
+    $str = $self->preprocess($str);
+
+    # parsing boils down to just matching string against single big re, and then
+    # running the matching pattern's subroutine.
+
+    if ($str =~ $re) {
+        my $dt = DateTime->now;
+        for my $p (@{ $self->{patterns} }) {
+            next unless $str =~ $p->[0];
+            $p->[1]->($dt);
+        }
+        return $dt;
+    } else {
+        return;
+    }
+}
+
+sub parse_datetime_duration {
+    die "Not implemented yet";
+}
+
+sub format_datetime {
+    die "Not implemented yet";
+}
+
+sub format_datetime_duration {
+    die "Not implemented yet";
+}
+
+
+
+### tokens, patterns, and actions
+
+
+sub t_WEEKDAY {
+    my ($self) = @_;
+    state $data = do {
+        my $tmp = join "|", keys %{ $self->h_WEEKDAY };
+        qr/(?:$tmp)/;
+    };
+}
+
+sub t_MONTH {
+    my ($self) = @_;
+    state $data = do {
+        my $tmp = join "|", keys %{ $self->h_MONTH };
+        qr/(?:$tmp)/;
+    };
+}
+
+sub p_WEEKDAY { "t_WEEKDAY" }
+
+sub a_WEEKDAY {
+    my ($self, $dt, $match) = @_;
+    $self->calc_weekday($dt, $self->h_WEEKDAY->{ $match->{WEEKDAY} },
+                        0, 0, 0);
+}
+
+sub p_THIS_WEEKDAY { "<THIS> <L_WEEKDAY>" }
+
+sub a_THIS_WEEKDAY {
+    my ($self, $dt, $match) = @_;
+    $self->calc_this_weekday_B($dt, $self->h_WEEKDAY->{ $match->{WEEKDAY} });
+}
+
+# 4th day last week
+sub a_ORDINAL_DAY_LASTNEXT_WEEK {
+    my ($self, $dt, $match) = @_;
+    my $n = get_number($match->{ORDINAL});
+    #...
+    calculate_;
+}
+
+#sub p_THIS_WEEKEND { "<THIS> <WEEKEND>" }
+# NEXT/LAST_WEEKEND
+# THIS/NEXT/LAST_WEEKEND
+# ...
+
+sub p_
+
+no Any::Moose;
+1;
+__END__
+$RE{year} = qr/^
     %data_conversion = (
-        last_this_next    => { do { $i = -1; map { $_ => $i++ } qw(last this next)           } },
-        yes_today_tom     => { do { $i = -1; map { $_ => $i++ } qw(yesterday today tomorrow) } },
-        noon_midnight     => { noon => 12, midnight => 0                                       },
-        morn_aftern_even  => { do { $i = 0; map { $_ => $i++ } qw(morning afternoon evening) } },
-        before_after_from => { before => -1, after => 1, from => 1                             },
+        last_this_next    => { lalu => -1, ini => 0, depan => 1 },
+        yes_today_tom     => { "kemarin lusa" => -2,
+                               kemarin => -1, kmrn => -1,
+                               "hari ini" => 0,
+                               besok => 1, esok => 1,
+                               lusa => 2, "besok lusa" => 2, "esok lusa", => 2,
+                           },
+        noon_midnight     => { "tengah hari" => 12, "tengah malam" => 0 },
+        morn_aftern_even  => { pagi => 0, siang => 1, sore => 2, malam => 3 },
+        before_after_from => { sebelum => -1, sesudah => 1, dari => 1 },
     );
 
     %data_helpers = (
-        suffix      => qr/s$/i,
         normalize   => sub { ${$_[0]} = ucfirst lc ${$_[0]} },
-        abbreviated => sub { length ${$_[0]} == 3 },
     );
 
     %data_duration = (
         for => sub {
             my ($date_strings) = @_;
             return (@$date_strings == 1
-                && $date_strings->[0] =~ /^for \s+/ix);
+                && $date_strings->[0] =~ /^selama \s+/ix);
         },
+        #XXX
         first_to_last => sub {
             my ($date_strings) = @_;
             return (@$date_strings == 2
-                && $date_strings->[0] =~ /^first$/i
-                && $date_strings->[1] =~ /^last \s+/ix);
+                && $date_strings->[1] =~ /^pertama$/i
+                && $date_strings->[1] =~ /^terakhir \s+/ix);
         },
         date_time_to_time => sub {
             my ($date_strings) = @_;
 
             my $date = qr!(?:\d{1,4}) (?:[-./]\d{1,4}){0,2}!x;
-            my $time = qr!(?:\d{1,2}) (?:\:\d{2}){0,2}!x;
+            my $time = qr!(?:\d{1,2}) (?:[:.]\d{2}){0,2}!x;
 
             return (@$date_strings == 2
                 && $date_strings->[0] =~ /^$date \s+ $time$/x
@@ -116,105 +295,32 @@ our (%init,
 
     %data_aliases = (
         words => {
-            tues  => 'tue',
-            thurs => 'thu',
+            #EN#tues  => 'tue',
+            #EN#thurs => 'thu',
         },
         tokens => {
-            mins => 'minutes',
-            '@'  => 'at',
+            #EN#mins => 'minutes',
+            '@'  => 'pada',
         },
         short => {
-            min => 'minute',
-            d   => 'day',
+            dtk => 'detik',
+            men => 'menit',
+            mnt => 'menit',
+            j   => 'jam',
+            hr  => 'hari',
+            h   => 'hari',
+            #min => 'minggu',
+            mgg => 'minggu',
+            bul => 'bulan',
+            bln => 'bulan',
+            bl  => 'bulan',
+            th  => 'tahun',
+            thn => 'tahun',
         },
     );
 }
 
 %extended_checks = (
-    meridiem => sub
-    {
-        my ($first_stack, $rest_stack, $pos, $error) = @_;
-
-        my ($hour) = split /:/, $first_stack->{$pos->[0]};
-
-        if ($hour == 0) {
-            $$error = 'hour zero must be literal 12';
-            return false;
-        }
-        elsif ($hour > 12) {
-            $$error = 'hour exceeds 12-hour clock';
-            return false;
-        }
-        return true;
-    },
-    ordinal => sub
-    {
-        my ($first_stack, $rest_stack, $pos, $error) = @_;
-
-        my $suffix = do {
-            local $_ = $rest_stack->{$pos->[0]}->[0];
-            defined $_ ? lc $_ : undef;
-        };
-        return skip unless defined $suffix;
-
-        my $numeral = $first_stack->{$pos->[0]};
-
-        my %ordinals = (
-            1 => { regex => qr/^st$/,  suffix => 'st' },
-            2 => { regex => qr/^n?d$/, suffix => 'nd' },
-            3 => { regex => qr/^r?d$/, suffix => 'rd' },
-        );
-
-        my $fail_message = sub { "letter suffix should be '$_[0]'" };
-
-        local $1;
-        if ($numeral == 0) {
-            unless ($suffix eq 'th') {
-                $$error = $fail_message->('th');
-                return false;
-            }
-            return true;
-        }
-        elsif ($numeral =~ /([1-3])$/ && $numeral !~ /1\d$/) {
-            unless ($suffix =~ $ordinals{$1}->{regex}) {
-                $$error = $fail_message->($ordinals{$1}->{suffix});
-                return false;
-            }
-            return true;
-        }
-        elsif ($numeral > 3) {
-            unless ($suffix eq 'th') {
-                $$error = $fail_message->('th');
-                return false;
-            }
-            return true;
-        }
-        return skip; # never reached
-    },
-    suffix => sub
-    {
-        my ($first_stack, $rest_stack, $pos, $error) = @_;
-
-        my @checks = (
-            { cond  => sub { $first_stack->{$pos->[0]} == 1 && $first_stack->{$pos->[1]} =~ $data_helpers{suffix} },
-              error => "suffix 's' without plural",
-            },
-            { cond  => sub { $first_stack->{$pos->[0]} >  1 && $first_stack->{$pos->[1]} !~ $data_helpers{suffix} },
-              error => "plural without suffix 's'",
-            },
-        );
-
-        # XXX constant.pm true/false: workaround for a segmentation fault
-        # in Perl_mg_find() on perl 5.8.9 and 5.10.0 when using boolean.pm
-        # v0.20 (tested as of 12/02/2009).
-        foreach my $check (@checks) {
-            if ($check->{cond}->()) {
-                $$error = $check->{error};
-                return false;
-            }
-        }
-        return true;
-    },
 );
 
 # <keyword> => [
@@ -233,7 +339,7 @@ our (%init,
     now => [
        [ 'SCALAR' ],
        [
-         { 0 => 'now' },
+         { 0 => qr/^(?:sekarang|skrng|skrg|skr|saat ini)$/i },
          [],
          [],
          [ [] ],
@@ -245,7 +351,7 @@ our (%init,
     day => [
        [ 'REGEXP' ],
        [
-         { 0 => qr/^(today)$/i },
+         { 0 => qr/^(hari ini)$/i },
          [],
          [],
          [
@@ -3909,36 +4015,33 @@ our (%init,
 1;
 __END__
 
-=head1 NAME
-
-DateTime::Format::Natural::Lang::EN - English language metadata
-
 =head1 DESCRIPTION
 
-C<DateTime::Format::Natural::Lang::EN> provides the english specific grammar
-and variables. This class is loaded if the user either specifies the english
-language or implicitly.
+C<DateTime::Format::Natural::Lang::ID> provides the Indonesian specific grammar
+and variables. This class is loaded if the user specifies the Indonesian
+language.
 
 =head1 EXAMPLES
 
-Below are some examples of human readable date/time input in english (be aware
+Below are some examples of human readable date/time input in Indonesian (be aware
 that the parser does not distinguish between lower/upper case):
 
 =head2 Simple
 
- now
- yesterday
- today
- tomorrow
- morning
- afternoon
- evening
- noon
- midnight
- yesterday at noon
- yesterday at midnight
- today at noon
- today at midnight
+ sekarang (skr, skrg, skrng, saat ini)
+ kemarin (krmn)
+ hari ini
+ besok (esok)
+ pagi
+ siang
+ sore
+ # malam (mlm)
+ tengah hari
+ tengah malam
+ kemarin tengah siang
+ kemarin tengah malam
+ hari ini tengah siang
+ hari ini tengah malam
  tomorrow at noon
  tomorrow at midnight
  this morning
@@ -4221,19 +4324,12 @@ that the parser does not distinguish between lower/upper case):
  tues
  thurs
 
+=head1 CREDITS
+
+Based on L<DateTime::Format::Natural::Lang::EN> by Steven Schubiger.
+
 =head1 SEE ALSO
 
 L<DateTime::Format::Natural>
-
-=head1 AUTHOR
-
-Steven Schubiger <schubiger@cpan.org>
-
-=head1 LICENSE
-
-This program is free software; you may redistribute it and/or
-modify it under the same terms as Perl itself.
-
-See L<http://dev.perl.org/licenses/>
 
 =cut
