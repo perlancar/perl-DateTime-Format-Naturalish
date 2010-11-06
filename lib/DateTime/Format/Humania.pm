@@ -21,13 +21,13 @@ Parsing a date string is done by matching it against a bunch of patterns. Parsin
 succeeds if there is at least one pattern matches. Parsing fails if no pattern
 matches.
 
-A pattern is a regex. You provide them in p_*() methods. Example:
+A pattern is basically a regex. You provide them in p_*() methods. Example:
 
  # in DateTime::Format::Humania::EN
- sub p_NOW       { qr/(?:now)/ }
+ sub p_now       { { pattern => qr/(?:now)/ }
 
  # in DateTime::Format::Humania::ID
- sub p_YESTERDAY { qr/(?:kemarin)/ }
+ sub p_yesterday { qr/(?:kemarin)/ }
 
 When a pattern matches the text, an associated a_*() action method will be run.
 For example:
