@@ -75,7 +75,7 @@ use 5.010;
 use strict;
 use warnings;
 
-use Any::Moose;
+use Moo;
 use DateTime;
 
 has all_patterns_re => (is => 'rw');
@@ -247,7 +247,6 @@ sub a_ORDINAL_DAY_LASTNEXT_WEEK {
 
 sub p_
 
-no Any::Moose;
 1;
 __END__
 $RE{year} = qr/^
