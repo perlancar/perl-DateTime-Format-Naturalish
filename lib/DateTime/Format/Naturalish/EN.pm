@@ -1,10 +1,10 @@
-package DateTime::Format::Humania::EN;
-# ABSTRACT: Parse date/time in English
+package DateTime::Format::Naturalish::EN;
+# ABSTRACT: Date/time naturalish patterns for English language
 
 use 5.010;
 use strict;
 use warnings;
-use base qw(DateTime::Format::Humania);
+use base qw(DateTime::Format::Naturalish);
 
 sub h_WEEKDAY {
     state $data = {

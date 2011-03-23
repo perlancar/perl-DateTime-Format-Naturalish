@@ -1,12 +1,12 @@
-package DateTime::Format::Humania;
+package DateTime::Format::Naturalish;
 # ABSTRACT: Parse human date/time
 
 =head1 SYNOPSIS
 
  use DateTime;
- use DateTime::Format::Humania;
+ use DateTime::Format::Naturalish;
 
- my $parser = DateTime::Format::Humania->new();
+ my $parser = DateTime::Format::Naturalish->new();
  my $dt = $parser->parse_datetime("2 hours 13 minutes from now");
 
 =head1 DESCRIPTION
@@ -17,16 +17,16 @@ designed to make it easy to add new human languages.
 
 =head1 HOW IT WORKS
 
-Parsing a date string is done by matching it against a bunch of patterns. Parsing
-succeeds if there is at least one pattern matches. Parsing fails if no pattern
-matches.
+Parsing a date string is done by matching it against a bunch of patterns.
+Parsing succeeds if there is at least one pattern matches. Parsing fails if no
+pattern matches.
 
 A pattern is basically a regex. You provide them in p_*() methods. Example:
 
- # in DateTime::Format::Humania::EN
+ # in DateTime::Format::Naturalish::EN
  sub p_now       { { pattern => qr/(?:now)/ }
 
- # in DateTime::Format::Humania::ID
+ # in DateTime::Format::Naturalish::ID
  sub p_yesterday { qr/(?:kemarin)/ }
 
 When a pattern matches the text, an associated a_*() action method will be run.
@@ -53,10 +53,10 @@ They will also be converted into a regex, e.g. in EN (note the named captures):
 
 =head1 ADDING A NEW HUMAN LANGUAGE
 
-To add a new language, subclass this module, which already contains many patterns
-(though some might contain Englishisms). You usually then alter a few p_*()
-methods, as well as provide some translations for some text (like weekday and
-month names in t_*() methods). The point is that most of the action methods
+To add a new language, subclass this module, which already contains many
+patterns (though some might contain Englishisms). You usually then alter a few
+p_*() methods, as well as provide some translations for some text (like weekday
+and month names in t_*() methods). The point is that most of the action methods
 should be reusable.
 
 Of course you can add new patterns along with their actions, though try to think
@@ -67,7 +67,7 @@ If you want to remove some patterns because it is not used in your language,
 override the associated p_*() method and return undef.
 
 For more details, view the source code to existing translations, like
-L<DateTime::Format::Humania::ID>.
+L<DateTime::Format::Naturalish::ID>.
 
 =cut
 
@@ -387,8 +387,8 @@ language.
 
 =head1 EXAMPLES
 
-Below are some examples of human readable date/time input in Indonesian (be aware
-that the parser does not distinguish between lower/upper case):
+Below are some examples of human readable date/time input in Indonesian (be
+aware that the parser does not distinguish between lower/upper case):
 
 =head2 Simple
 

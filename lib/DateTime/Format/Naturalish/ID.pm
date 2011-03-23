@@ -1,10 +1,10 @@
-package DateTime::Format::Humania::IDD;
-# ABSTRACT: Parse date/time in Indonesian
+package DateTime::Format::Naturalish::IDD;
+# ABSTRACT: Date/time naturalish patterns for Indonesian language
 
 use 5.010;
 use strict;
 use warnings;
-use base qw(DateTime::Format::Humania);
+use base qw(DateTime::Format::Naturalish);
 
 sub h_DOW_FULL {
     state $data = {
