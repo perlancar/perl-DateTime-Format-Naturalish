@@ -6,7 +6,7 @@ use strict;
 use warnings;
 use base qw(DateTime::Format::Humania);
 
-sub h_WEEKDAY {
+sub h_DOW_FULL {
     state $data = {
         (map { $_ => 1 } qw(senin)),
         (map { $_ => 2 } qw(selasa)),
@@ -15,8 +15,11 @@ sub h_WEEKDAY {
         (map { $_ => 5 } qw(jumat jum'at jumaat juma'at jumah jum'ah jumaah)),
         (map { $_ => 6 } qw(sabtu saptu)),
         (map { $_ => 7 } qw(minggu ahad)),
+    };
+}
 
-        # abbreviations
+sub h_DOW_ABBREV {
+    state $data = {
         (map { $_ => 1 } qw(sen snn sn)),
         (map { $_ => 2 } qw(sel sls sl)),
         (map { $_ => 3 } qw(rab ra rb)),
