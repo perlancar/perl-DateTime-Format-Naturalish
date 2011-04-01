@@ -1,88 +1,17 @@
 package DateTime::Format::Naturalish;
 # ABSTRACT: Parse human date/time
 
-=head1 SYNOPSIS
-
- use DateTime;
- use DateTime::Format::Naturalish;
-
- my $parser = DateTime::Format::Naturalish->new();
- my $dt = $parser->parse_datetime("2 hours 13 minutes from now");
-
-=head1 DESCRIPTION
-
-There are already some other DateTime human language parsers on CPAN, e.g.
-L<DateTime::Format::Natural>. This module is yet another implementation of such,
-designed to make it easy to add new human languages.
-
-=head1 HOW IT WORKS
-
-Parsing a date string is done by matching it against a bunch of patterns.
-Parsing succeeds if there is at least one pattern matches. Parsing fails if no
-pattern matches.
-
-A pattern is basically a regex. You provide them in p_*() methods. Example:
-
- # in DateTime::Format::Naturalish::EN
- sub p_now       { { pattern => qr/(?:now)/ }
-
- # in DateTime::Format::Naturalish::ID
- sub p_yesterday { qr/(?:kemarin)/ }
-
-When a pattern matches the text, an associated a_*() action method will be run.
-For example:
-
- sub a_YESTERDAY { my ($self, $dt) = @_; $dt->add(days => -1) }
-
-The action method will be given a DateTime object which was initially created
-using DateTime->now().
-
-A pattern can be composed of tokens and other patterns:
-
- # in EN
- sub p_LAST_WEEKDAY { "<LAST> <WEEKDAY>" }
- sub t_LAST { "last" }
-
- # in ID (in Indonesian, order is reversed, we usually say 'saturday next')
- sub p_NEXT_WEEKDAY { "<WEEKDAY> <NEXT>" }
- sub t_NEXT { ["berikutnya", "depan"] }
-
-They will also be converted into a regex, e.g. in EN (note the named captures):
-
- qr/(?<NEXT>(?:last)) (?<WEEKDAY>(?:monday|mon|tuesday|tue|...))/
-
-=head1 ADDING A NEW HUMAN LANGUAGE
-
-To add a new language, subclass this module, which already contains many
-patterns (though some might contain Englishisms). You usually then alter a few
-p_*() methods, as well as provide some translations for some text (like weekday
-and month names in t_*() methods). The point is that most of the action methods
-should be reusable.
-
-Of course you can add new patterns along with their actions, though try to think
-more generically and see if your new pattern is also applicable to English/the
-base class.
-
-If you want to remove some patterns because it is not used in your language,
-override the associated p_*() method and return undef.
-
-For more details, view the source code to existing translations, like
-L<DateTime::Format::Naturalish::ID>.
-
-=cut
-
 use 5.010;
-use strict;
-use warnings;
-
 use Moo;
+
 use DateTime;
 
-has all_patterns_re => (is => 'rw');
+has datetime_re => (is => 'rw');
+has duration_re => (is => 'rw');
 
 sub BUILD {
     my ($self, %args) = @_;
-    $self->prepare_patterns unless $self->{all_patterns_re};
+    $self->prepare_re unless $self->{datetime_re};
 }
 
 sub prepare_patterns {
@@ -291,6 +220,69 @@ p_;
 
 1;
 __END__
+
+=head1 SYNOPSIS
+
+ use DateTime;
+ use DateTime::Format::Naturalish;
+
+ my $parser = DateTime::Format::Naturalish->new();
+ my $dt = $parser->parse_datetime("2 hours 13 minutes from now");
+
+
+=head1 DESCRIPTION
+
+There are already some other DateTime human language parsers on CPAN, e.g.
+L<DateTime::Format::Natural>. This module is yet another implementation of such,
+designed to make it easy to add new human languages.
+
+
+=head1 HOW IT WORKS
+
+Parsing a date string is done by matching it against a bunch of regex patterns.
+Parsing succeeds if there is at least one pattern matches. Parsing fails if no
+pattern matches.
+
+You provide patterns in p_*() methods (or pd_*(), for parsing duration).
+Example:
+
+ # in DateTime::Format::Naturalish::en
+ sub p_now       { qr/(?:now)/ }
+
+ # in DateTime::Format::Naturalish::id
+ sub p_yesterday { qr/(?:kemarin)/ }
+
+Make sure you put non-capturing group around the pattern, so it can safely be
+composed into other larger patterns.
+
+All p_*() methods will be combined into a single regex, which is then matched
+with text. The same is done with all pd_*() methods.
+
+When a pattern matches the text, an associated a_*() action method will be run
+to set the resulting DateTime (or DateTime::Duration) object. For example:
+
+ sub a_yesterday {
+     my $self = shift;
+     my $dt = $self->result;
+     $dt->add(days => -1);
+ }
+
+
+=head1 ADDING A NEW HUMAN LANGUAGE
+
+To add a new language, subclass this module and override the p_*() and pd_*()
+methods as needed. The a_*() methods should mostly be reusable.
+
+See L<DateTime::Format::Naturalish::id> or
+L<DateTime::Format::Naturalish::zh_CN> for examples.
+
+
+=head1 SEE ALSO
+
+L<DateTime::Format::Natural>
+
+=cut
+
 $RE{year} = qr/^
     %data_conversion = (
         last_this_next    => { lalu => -1, ini => 0, depan => 1 },
@@ -688,12 +680,4 @@ aware that the parser does not distinguish between lower/upper case):
  tues
  thurs
 
-=head1 CREDITS
 
-Based on L<DateTime::Format::Natural::Lang::EN> by Steven Schubiger.
-
-=head1 SEE ALSO
-
-L<DateTime::Format::Natural>
-
-=cut
