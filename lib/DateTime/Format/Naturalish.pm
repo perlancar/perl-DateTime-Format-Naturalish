@@ -2,23 +2,208 @@ package DateTime::Format::Naturalish;
 # ABSTRACT: Parse human date/time
 
 use 5.010;
-use Moo;
+use strict;
+use warnings;
+use locale;
 
+use Class::Inspector;
 use DateTime;
 
-has datetime_re => (is => 'rw');
-has duration_re => (is => 'rw');
+=for Pod::Coverage ^a_ ^adat_ ^adur_ ^aset_
 
-sub BUILD {
-    my ($self, %args) = @_;
-    $self->prepare_re unless $self->{datetime_re};
+=cut
+
+sub new {
+    my ($class) = @_;
+    my $self = bless {}, $class;
+    $self->_compile_patterns;
+    $self;
 }
 
-sub prepare_patterns {
+sub _compile_patterns {
     my ($self) = @_;
 
-    $self->{patterns} = [];
+    # put stuffs in package variables, to share between objects.
+    my $class = ref($self);
+
+    no strict 'refs';
+    my $pat     = ${$class . '::pat'};
+    return if $pat;
+    my $dat_pat = ${$class . '::dat_pat'};
+    my $dur_pat = ${$class . '::dur_pat'};
+    my $set_pat = ${$class . '::set_pat'};
+
+    my $methods = Class::Inspector->methods($class);
+
+    $pat     = {};
+    for (grep { /^p_/ } @$methods) {
+        my $k = $_; $k =~ s/^p_//;
+        $pat->{$k} = $self->$_;
+    }
+    ${$class . '::pat'} = $pat;
+
+    $dat_pat = join ("|",
+                     map { "(?<$_>".$self->$_.")" }
+                         grep { /^pdat_/ } @$methods);
+    die "BUG: No datetime patterns defined" unless $dat_pat;
+    $dat_pat = qr/$dat_pat/;
+    ${$class . '::dat_pat'} = $dat_pat;
+
+    $dur_pat = join ("|",
+                     map { "(?<$_>".$self->$_.")" }
+                         grep { /^pdur_/ } @$methods);
+    die "BUG: No datetime duration patterns defined" unless $dur_pat;
+    $dur_pat = qr/$dur_pat/;
+    ${$class . '::dur_pat'} = $dur_pat;
+
+    $set_pat = join ("|",
+                     map { "(?<$_>".$self->$_.")" }
+                         grep { /^pset_/ } @$methods);
+    die "BUG: No datetime recurrence patterns defined" unless $dur_pat;
+    $set_pat = qr/$set_pat/;
+    ${$class . '::set_pat'} = $set_pat;
 }
+
+=head2 $parser->preprocess(STR) => STR
+
+Preprocess string before being parsed. The default implementation trims the
+string and converts it to lowercase using lc().
+
+=cut
+
+sub preprocess {
+    my ($self, $str) = @_;
+    for ($str) { s/\A\s+//s; s/\s+\z//s }
+    lc($str);
+}
+
+sub parse_datetime {
+    my ($self, $str) = @_;
+    my $class = ref($self);
+    no strict 'refs';
+
+    $str = $self->preprocess($str);
+    return unless $str =~ ${$class . "::dat_pat"};
+    my %m = %+;
+    my @pat = grep {/^pdat_/} keys %m;
+    @pat or die "BUG: Matched but no pdat_* pattern captured";
+    my $method = $pat[0];
+    $method =~ s/^pdat_/adat_/;
+    $self->can($method) or die "BUG: No action method $method defined";
+    print "Calling method $method\n";
+    $self->$method(\%m);
+}
+
+sub parse_datetime_duration {
+    die "Not implemented yet";
+}
+
+sub parse_datetime_recurrence {
+    die "Not implemented yet";
+}
+
+sub format_datetime {
+    die "Not implemented yet";
+}
+
+sub format_datetime_duration {
+    die "Not implemented yet";
+}
+
+sub format_datetime_recurrence {
+    die "Not implemented yet";
+}
+
+=head2 $parser->parse_num(STR) => NUM
+
+Parse number matched by p_num().
+
+=cut
+
+sub parse_num {
+    my ($self, $str) = @_;
+    $str+0;
+}
+
+=head1 COMMON PATTERN METHODS
+
+These methods are prefixed with "p_".
+
+=head2 wsep
+
+Regex for matching word separator. The default is \s+. You might want to
+override this e.g. for Chinese where words are not separated by whitespace.
+
+=cut
+
+sub p_wsep { qr/\s+/ }
+
+=head2 words
+
+Regex for matching words. Default is:
+
+ \w+ ($p_wsep \w+)*
+
+Normally you do not need to override this.
+
+=cut
+
+sub p_words {
+    my $self = shift;
+    my $wsep = $self->p_wsep;
+    qr/\w+(?:$wsep \w+)*/x;
+}
+
+=head2 num
+
+Regex for matching number. The default accepts integer and decimal numbers. If
+you override this, make sure you also adjust parse_num().
+
+=cut
+
+# XXX support thousand operators
+# XXX support verbage (e.g. "twenty two" for 22)
+sub p_num {
+    qr/(?:\d+\.?|\d*\.\d+)/x;
+}
+
+=head1 DATETIME PATTERN METHODS
+
+All the methods are prefixed by "pdat_".
+
+=head2 now
+
+English example(s): now
+
+=cut
+
+sub adat_now {
+    my ($self, $match) = @_;
+    DateTime->now;
+}
+
+=head2 x_ago
+
+English example(s): 1 hour ago, 2 days 14 minutes 120 seconds ago
+
+=cut
+
+sub adat_x_ago {
+    my ($self, $match) = @_;
+}
+
+=head2 x_from_now
+
+Just like x_ago, but for describing periods in the future.
+
+=cut
+
+sub adat_x_from_now {
+    my ($self, $str) = @_;
+}
+
+1;
+__END__
 
 # if today=wed, this_weekday(tue)= H-8 (if a=-1) / H-1 (if a=0) / H+6 (if a=1),
 # this_weekend(wed)=H-7 (if b=-1) / H (if b=0) / H+7 (if b=1),
@@ -74,60 +259,6 @@ sub calc_next_weekday {
     $self->calc_weekday($dt, $target_dow, $a, $b, $c);
 }
 
-# combine all pattern res into a single one, for matching strings
-
-sub compile_single_big_re {
-    my ($self) = @_;
-    my $re = join(
-        "|",
-        sort {length($b) <=> length($a)}
-            map { $_->[0] } @{ $self->{patterns} }
-        );
-    $self->{single_big_re} = qr/\A$re\z/;
-}
-
-sub preprocess {
-    my ($self, $str) = @_;
-    for ($str) { s/\A\s+//s; s/\s+\z//s; }
-    lc($str);
-}
-
-sub parse_datetime {
-    my ($self, $str) = @_;
-    my $re = $self->{single_big_re};
-
-    $str = $self->preprocess($str);
-
-    # parsing boils down to just matching string against single big re, and then
-    # running the matching pattern's subroutine.
-
-    if ($str =~ $re) {
-        my $dt = DateTime->now;
-        for my $p (@{ $self->{patterns} }) {
-            next unless $str =~ $p->[0];
-            $p->[1]->($dt);
-        }
-        return $dt;
-    } else {
-        return;
-    }
-}
-
-sub parse_datetime_duration {
-    die "Not implemented yet";
-}
-
-sub format_datetime {
-    die "Not implemented yet";
-}
-
-sub format_datetime_duration {
-    die "Not implemented yet";
-}
-
-
-
-### tokens, patterns, and actions
 
 
 sub t_WEEKDAY {

@@ -1,10 +1,28 @@
-package DateTime::Format::Naturalish::IDD;
-# ABSTRACT: Date/time naturalish patterns for Indonesian language
+package DateTime::Format::Naturalish::id;
+# ABSTRACT: Patterns for Indonesian language
 
 use 5.010;
 use strict;
 use warnings;
+use locale;
+
 use base qw(DateTime::Format::Naturalish);
+use vars qw($pat);
+
+sub pdat_now { qr/^(?:sekarang|saat ini)$/ }
+
+sub pdat_x_ago {
+    my ($self) = @_;
+    qr/^(?:(?<num> $pat->{num}) $pat->{wsep}? (?<period> period))+
+       $pat->{wsep} (?:yang )lalu$/x;
+}
+
+sub pdur_dummy { qr/^dummy$/ }
+
+sub pset_dummy { qr/^dummy$/ }
+
+1;
+__END__
 
 sub h_DOW_FULL {
     state $data = {

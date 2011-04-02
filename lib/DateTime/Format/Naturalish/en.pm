@@ -1,10 +1,28 @@
-package DateTime::Format::Naturalish::EN;
-# ABSTRACT: Date/time naturalish patterns for English language
+package DateTime::Format::Naturalish::en;
+# ABSTRACT: Patterns for English language
 
 use 5.010;
 use strict;
 use warnings;
+use locale;
+
 use base qw(DateTime::Format::Naturalish);
+use vars qw($pat);
+
+sub pdat_now { qr/^now$/ }
+
+sub pdat_x_ago {
+    my ($self) = @_;
+    qr/^(?:(?<num> $pat->{num}) $pat->{wsep}? (?<period> period))+
+       $pat->{wsep} ago$/x;
+}
+
+sub pdur_dummy { qr/^dummy$/ }
+
+sub pset_dummy { qr/^dummy$/ }
+
+1;
+__END__
 
 sub h_WEEKDAY {
     state $data = {
