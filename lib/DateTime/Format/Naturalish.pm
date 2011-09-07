@@ -1,5 +1,5 @@
 package DateTime::Format::Naturalish;
-# ABSTRACT: Parse human date/time
+# ABSTRACT: Parse human date/time/duration
 
 use 5.010;
 use strict;
@@ -404,8 +404,8 @@ to set the resulting DateTime (or DateTime::Duration) object. For example:
 To add a new language, subclass this module and override the p_*() and pd_*()
 methods as needed. The a_*() methods should mostly be reusable.
 
-See L<DateTime::Format::Naturalish::id> or
-L<DateTime::Format::Naturalish::zh_CN> for examples.
+See L<DateTime::Format::Naturalish::id> or L<DateTime::Format::Naturalish::zh>
+for examples.
 
 
 =head1 SEE ALSO
